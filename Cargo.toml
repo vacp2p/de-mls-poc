@@ -9,7 +9,7 @@ members = [
 
 [package]
 name = "de-mls"
-version = "3.0.0"
+version = "0.1.0"
 edition = "2024"
 rust-version = "1.95"
 description = "Decentralized MLS — end-to-end encrypted group messaging with consensus-based membership management over gossipsub-like networks"
