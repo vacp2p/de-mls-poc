@@ -1,23 +1,24 @@
-# De-MLS
+# de-mls-poc
 
-[![Crates.io](https://img.shields.io/crates/v/de-mls.svg)](https://crates.io/crates/de-mls)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
-Decentralized MLS proof-of-concept that coordinates secure conversation
-membership through off-chain consensus and a Waku relay. A native
-desktop client built with Dioxus drives the MLS core directly.
+Example integration and demo for the
+[de-mls](https://github.com/vacp2p/de-mls) library: a Dioxus desktop chat client
+that drives de-mls's `Conversation` handle over a Waku relay, with
+consensus-based membership. This repo is the runnable proof of concept — the
+protocol library itself lives in the de-mls repo.
 
 ## What's Included
 
-| Crate / Path                  | Description                                                                          |
-| ----------------------------- | ------------------------------------------------------------------------------------ |
-| **de-mls** (`src/`)           | Core library — MLS conversations, consensus, member-id trait, and the delivery layer |
-| **crates/de_mls_ui_protocol** | Shared UI ↔ gateway message types (`AppCmd`, `AppEvent`, `MemberInfo`) + hex display |
-| **crates/de_mls_gateway**     | Bridges UI commands to the core runtime and streams events back                      |
-| **crates/ui_bridge**          | Bootstrap glue that hosts the async command loop for desktop clients                 |
-| **apps/de_mls_desktop_ui**    | Dioxus desktop UI with login, chat, stewardship, and voting flows                    |
-| **tests/**                    | Integration tests for the MLS state machine and consensus paths                      |
+| Crate / Path                  | Description                                                                                                 |
+| ----------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| **de-mls** (`src/`)           | The de-mls protocol library, vendored here as a snapshot (to become a pinned dependency on the de-mls repo) |
+| **crates/de_mls_ds**          | Delivery service — the `DeliveryService` trait and a Waku relay implementation                              |
+| **crates/de_mls_gateway**     | Integrator layer — per-conversation registry, identity, key-package minting, the OpenMLS provider           |
+| **crates/de_mls_ui_protocol** | Shared UI ↔ gateway message types (`AppCmd`, `AppEvent`, `MemberInfo`) + hex display                        |
+| **crates/ui_bridge**          | Bootstrap glue that hosts the async command loop for the desktop client                                     |
+| **apps/de_mls_desktop_ui**    | Dioxus desktop UI — login, chat, stewardship, and voting flows                                              |
 
 ## Prerequisites
 
@@ -43,33 +44,25 @@ make LIBWAKU_NIM_PARAMS=""
 
 ## Feature Flags
 
-| Feature | Default | Description                                                                     |
-| ------- | ------- | ------------------------------------------------------------------------------- |
-| `waku`  | off     | Enables the Waku relay transport (`WakuDeliveryService`) and links to `libwaku` |
+| Feature | Crate       | Description                                                                     |
+| ------- | ----------- | ------------------------------------------------------------------------------- |
+| `waku`  | `de-mls-ds` | Enables the Waku relay transport (`WakuDeliveryService`) and links to `libwaku` |
 
-The core library (`de_mls`) compiles and tests **without** `libwaku` present.
-The `waku` feature is required only when you need the concrete `WakuDeliveryService`
-implementation — the gateway and desktop crates enable it automatically.
+The `waku` feature lives on `de-mls-ds`; the gateway and desktop crates enable it
+automatically. Without it, `de-mls-ds` still provides the transport-agnostic
+`DeliveryService` trait and packet types — `libwaku` is needed only for the
+concrete `WakuDeliveryService`.
 
-```toml
-# Use the transport-agnostic types only (no libwaku needed):
-de-mls = { path = "..." }
+## Delivery Service (`crates/de_mls_ds`)
 
-# Enable the Waku transport (requires libwaku):
-de-mls = { path = "...", features = ["waku"] }
-```
-
-## Delivery Service (`src/ds/`)
-
-The delivery service (DS) is the transport layer that sits between the MLS core
-and the network. It is fully **synchronous** — no tokio dependency — so it can
-be used from any Rust context.
+The delivery service (DS) is the transport layer between the conversation and the
+network. It is synchronous, so it can be used from any Rust context.
 
 ### Module layout
 
 ``` text
-src/ds/
-├── mod.rs              Public API re-exports
+crates/de_mls_ds/src/
+├── lib.rs              Public API re-exports
 ├── transport.rs        DeliveryService trait, OutboundPacket, InboundPacket
 ├── error.rs            DeliveryServiceError
 ├── topic_filter.rs     TopicFilter — HashSet-based allowlist for inbound routing
@@ -94,7 +87,7 @@ src/ds/
 ### Basic usage
 
 ```rust
-use de_mls::ds::{WakuDeliveryService, WakuConfig, DeliveryService, OutboundPacket};
+use de_mls_ds::{WakuDeliveryService, WakuConfig, DeliveryService, OutboundPacket};
 
 let result = WakuDeliveryService::start(WakuConfig {
     node_port: 60000,
@@ -211,31 +204,23 @@ All nodes discover each other via the DHT and form a gossipsub relay mesh automa
   - Surfaces the proposal currently open for voting with `YES`/`NO` buttons
   - Stores the latest proposal decisions with timestamps for quick auditing
 
-## Library Usage
+## How this demo uses de-mls
 
-The library is identity-agnostic — integrators implement
-`de_mls::identity::Identity` (bytes + display) for their own scheme
-(wallet, Ed25519 pubkey, account id, …) and construct a `User` directly:
+de-mls is transport- and identity-agnostic: it owns the protocol and exposes a
+per-conversation `de_mls::Conversation` handle. The integration that wraps it
+lives in **`crates/de_mls_gateway`** — it keeps a per-conversation registry,
+builds each `Conversation` from a wallet-derived credential, owns the OpenMLS
+provider and key-package minting, and pumps the delivery service. The default
+plug-ins (consensus over `hashgraph-like-consensus`, in-memory peer scoring, the
+deterministic steward list) come from `de_mls::defaults`.
 
-```rust,ignore
-use de_mls::app::User;
-
-let user = User::new_with_plugins(
-    Box::new(my_identity),   // anything implementing `Identity`
-    plugins,                 // a `UserPlugins<P, CP>` bundle
-    transport,               // your `DeliveryService` impl
-);
-```
-
-Reference plug-in implementations (in-memory MLS storage, default
-consensus backend over `hashgraph-like-consensus`, in-memory peer-score
-storage, etc.) live in `de_mls::defaults` and can be adopted wholesale
-or swapped piece-by-piece.
+For the library API itself, see the
+[de-mls](https://github.com/vacp2p/de-mls) repository.
 
 ## Development Tips
 
-- `cargo test -p de-mls` – runs core tests (no libwaku required)
-- `cargo test -p de-mls --features waku` – includes Waku transport tests (needs libwaku in `libs/`)
+- `cargo test -p de-mls` – core library tests
+- `cargo build -p de-mls-gateway --features waku` – build the gateway with the Waku transport (needs libwaku in `libs/`; run `make` first)
 - `cargo fmt --all --check` / `cargo clippy --all-targets -- -D warnings` – CI enforces both
 - `RUST_BACKTRACE=full` – helpful when debugging state-machine transitions during development
 
