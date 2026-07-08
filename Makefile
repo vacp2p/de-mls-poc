@@ -54,6 +54,14 @@ copy:
 		echo "Error: Could not find $(LIB_NAME) in $(REPO_DIR)/build/"; \
 		exit 1; \
 	fi
+	@# The Nim build stamps an absolute install-name (the builder's own
+	@# path); binaries load the library through the @rpath the crates'
+	@# build scripts embed, so normalize the id and re-sign (macOS needs a
+	@# valid signature after install_name_tool rewrites the header).
+	@if [ "$$(uname)" = "Darwin" ]; then \
+		install_name_tool -id @rpath/$(LIB_NAME) "$(OUTPUT_DIR)/$(LIB_NAME)"; \
+		codesign -f -s - "$(OUTPUT_DIR)/$(LIB_NAME)"; \
+	fi
 	@echo "Success! Library located at: ./$(OUTPUT_DIR)/$(LIB_NAME)"
 
 clean:
