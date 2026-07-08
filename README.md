@@ -28,14 +28,20 @@ the newest upstream commit.
 ## Prerequisites
 
 - **Rust** (stable toolchain)
-- **Nim** (for building libwaku) — `brew install nim`
+- **Nim** (only if rebuilding libwaku, see below) — `brew install nim`
 
-## Building libwaku
+## libwaku
 
-The project uses a local `libwaku.dylib` built from [logos-messaging-nim](https://github.com/logos-messaging/logos-messaging-nim):
+The Waku transport links against a local
+[logos-messaging-nim](https://github.com/logos-messaging/logos-messaging-nim)
+build in `libs/`. A prebuilt **macOS arm64** `libwaku.dylib` is checked in, so
+on Apple Silicon the project builds and runs out of the box — no `make`
+needed.
+
+Rebuild it (or build `libwaku.so` on Linux) with:
 
 ```bash
-make          # clones, builds, and copies libwaku.dylib into ./libs/
+make          # clones, builds, and copies libwaku into ./libs/
 ```
 
 `make` builds `libwaku` with `--undef:metrics` by default to avoid libwaku
@@ -45,7 +51,10 @@ metrics thread-label errors in embedded-node usage. Override if needed:
 make LIBWAKU_NIM_PARAMS=""
 ```
 
-`build.rs` links against `libs/libwaku.dylib` (or `libwaku.so` on Linux) and embeds an rpath automatically.
+The library's install-name is `@rpath/libwaku.dylib` (`make` normalizes and
+re-signs it after every rebuild), and each binary-producing crate carries a
+`build.rs` that embeds the workspace `libs/` rpath — so test and app binaries
+load the library from any checkout location.
 
 ## Feature Flags
 
@@ -226,7 +235,7 @@ For the library API itself, see the
 ## Development Tips
 
 - `cargo test -p de-mls-gateway` – gateway integration tests (in-memory transport)
-- `cargo build -p de-mls-gateway` – build the gateway with the Waku transport (needs libwaku in `libs/`; run `make` first)
+- `cargo build -p de-mls-gateway` – build the gateway with the Waku transport (uses the checked-in `libs/libwaku.dylib` on macOS arm64; elsewhere run `make` first)
 - `cargo update -p de-mls` – pull the latest de-mls `main` commit
 - `cargo fmt --all --check` / `cargo clippy --all-targets -- -D warnings` – CI enforces both
 - `RUST_BACKTRACE=full` – helpful when debugging state-machine transitions during development
