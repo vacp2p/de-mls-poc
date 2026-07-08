@@ -5,7 +5,9 @@
 //! registry-side: conversation lookup, lock poisoning, and transport
 //! delivery.
 
-use de_mls::{ConversationError, mls_crypto::MlsError};
+use de_mls::ConversationError;
+
+use crate::mls::MlsSetupError;
 
 /// Errors from `User` operations.
 #[derive(Debug, thiserror::Error)]
@@ -28,10 +30,9 @@ pub enum UserError {
     #[error(transparent)]
     Conversation(#[from] ConversationError),
 
-    /// Building the per-conversation MLS service failed (creator-side seeding
-    /// or opening a welcome).
+    /// Gateway-side MLS setup failed (credential or key-package minting).
     #[error(transparent)]
-    Mls(#[from] MlsError),
+    Mls(#[from] MlsSetupError),
 }
 
 impl UserError {

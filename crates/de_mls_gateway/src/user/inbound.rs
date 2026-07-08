@@ -51,9 +51,9 @@ impl<P: ConsensusPlugin, Sig: Signer + Clone> User<P, Sig> {
             };
             conversation.process_inbound(
                 self.plugins.conversation_plugins.provider(),
+                &self.signer,
                 &inbound.sender,
                 &inbound.payload,
-                &self.signer,
             )?
         };
         if matches!(outcome, DispatchOutcome::LeaveRequested) {
@@ -91,8 +91,9 @@ impl<P: ConsensusPlugin, Sig: Signer + Clone> User<P, Sig> {
             };
             conversation.sponsor_member(
                 self.plugins.conversation_plugins.provider(),
-                &invite.key_package_bytes,
                 &self.signer,
+                &invite.member_id,
+                &invite.key_package_bytes,
             )?;
         }
         self.flush(&entry_arc)?;

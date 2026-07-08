@@ -15,10 +15,9 @@ use de_mls_gateway::WalletMemberId;
 use hashgraph_like_consensus::signing::EthereumConsensusSigner;
 
 use de_mls::defaults::DefaultConsensusPlugin;
-use de_mls::{ConversationConfig, ScoringConfig, StewardListConfig};
+use de_mls::{ConversationConfig, ScoringConfig};
 use de_mls_ds::SharedDeliveryService;
 use de_mls_gateway::mls::{DefaultConversationPluginsFactory, build_credential};
-use de_mls_gateway::user::ConsensusContext;
 use de_mls_gateway::user::{User, UserPlugins};
 use openmls_basic_credential::SignatureKeyPair;
 
@@ -40,14 +39,13 @@ pub fn user_from_private_key(
         DefaultConversationPluginsFactory::new(credential, mls_signer.clone());
 
     let consensus_signer = EthereumConsensusSigner::new(eth_signer);
-    let consensus = ConsensusContext::<DefaultConsensusPlugin>::new(consensus_signer);
+    let consensus = DefaultConsensusPlugin::new(consensus_signer);
 
     let plugins = UserPlugins {
         conversation_plugins,
         consensus,
         default_conversation_config: cfg,
         default_scoring_config: ScoringConfig::default(),
-        default_steward_list_config: StewardListConfig::default(),
     };
 
     User::new_with_plugins(member_id, mls_signer, plugins, transport)

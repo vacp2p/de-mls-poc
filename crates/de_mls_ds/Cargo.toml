@@ -10,7 +10,7 @@ default = []
 waku = ["base64", "libc", "serde_json"]
 
 [dependencies]
-de-mls = { path = "../../" }
+de-mls = { workspace = true }
 thiserror = "2.0"
 tracing = "0.1.44"
 

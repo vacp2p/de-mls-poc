@@ -1,4 +1,5 @@
 [workspace]
+resolver = "3"
 members = [
     "apps/de_mls_desktop_ui",
     "crates/de_mls_ds",
@@ -7,58 +8,8 @@ members = [
     "crates/ui_bridge",
 ]
 
-[package]
-name = "de-mls"
-version = "0.1.0"
-edition = "2024"
-rust-version = "1.95"
-description = "Decentralized MLS — end-to-end encrypted group messaging with consensus-based membership management over gossipsub-like networks"
-license = "MIT OR Apache-2.0"
-repository = "https://github.com/vacp2p/de-mls"
-homepage = "https://github.com/vacp2p/de-mls"
-documentation = "https://docs.rs/de-mls"
-readme = "README.md"
-keywords = ["mls", "decentralized", "consensus", "group-messaging"]
-categories = ["cryptography", "network-programming"]
-exclude = [
-    "logos-messaging-nim/",
-    "libs/",
-    "apps/",
-    "crates/",
-    "tests/",
-    ".github/",
-    ".cargo/",
-    "Makefile",
-]
-
-[dependencies]
-openmls = "0.8.1"
-openmls_traits = "0.5.0"
-
-sha2 = "0.11.0"
-thiserror = "2.0.18"
-uuid = "1.23.2"
-tracing = "0.1.44"
-indexmap = "2.14.0"
-prost = "0.14"
-
-hashgraph-like-consensus = "0.5.1"
-
-[dev-dependencies]
-alloy = { version = "2.0.5", default-features = false, features = [
-    "signer-local",
-] }
-# Reference transport layer. A dev-only dependency
-de-mls-ds = { path = "crates/de_mls_ds" }
-# Tests build a concrete provider (OpenMlsRustCrypto) + signer (SignatureKeyPair)
-# and name the signer type for `ConversationDeps`. The lib itself is agnostic.
-openmls_basic_credential = { version = "0.5.0", features = ["clonable"] }
-openmls_rust_crypto = "0.5.1"
-
-[build-dependencies]
-prost-build = "0.14"
-
-[profile]
+[workspace.dependencies]
+de-mls = { git = "https://github.com/vacp2p/de-mls.git", branch = "main" }
 
 [profile.wasm-dev]
 inherits = "dev"

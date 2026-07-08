@@ -51,7 +51,7 @@ impl GatewayEventFanout {
     /// Dispatch one [`ConversationEvent`] to the UI pipe + side caches.
     pub(crate) async fn handle(&self, conversation_id: &str, event: ConversationEvent) {
         match event {
-            ConversationEvent::AppMessage(message) => {
+            ConversationEvent::ConversationMessage(message) => {
                 let _ = forward_app_message(&self.evt_tx, message);
             }
             ConversationEvent::Leaving => {
@@ -160,12 +160,33 @@ impl GatewayEventFanout {
                 push_consensus_state(&self.user, &self.evt_tx, conversation_id).await;
                 push_member_scores(&self.user, &self.evt_tx, conversation_id).await;
             }
-            ConversationEvent::FreezeProgress { received, expected } => {
+            ConversationEvent::CommitRoundProgress { received, expected } => {
                 let _ = self.evt_tx.unbounded_send(AppEvent::FreezeCandidates {
                     conversation_id: conversation_id.to_string(),
                     received,
                     expected,
                 });
+            }
+            // Layer-3 recovery lifecycle and degraded-join signals: no
+            // dedicated UI affordance yet — log them so demo runs surface
+            // what the conversation is doing.
+            ConversationEvent::RecoveryModeOpened => {
+                tracing::warn!(conversation = %conversation_id, "recovery mode opened");
+            }
+            ConversationEvent::RecoveryExhausted => {
+                tracing::error!(conversation = %conversation_id, "recovery exhausted");
+                let _ = self.evt_tx.unbounded_send(AppEvent::Error(format!(
+                    "group {conversation_id} could not recover; membership changes may be stuck"
+                )));
+            }
+            ConversationEvent::ConversationSyncMissing => {
+                tracing::warn!(
+                    conversation = %conversation_id,
+                    "joined without ConversationSync; awaiting steward re-send"
+                );
+            }
+            ConversationEvent::ConversationSyncApplied => {
+                tracing::info!(conversation = %conversation_id, "ConversationSync applied");
             }
             ConversationEvent::WelcomeReady {
                 welcome,
