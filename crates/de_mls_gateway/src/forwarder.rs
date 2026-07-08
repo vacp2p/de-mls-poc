@@ -44,7 +44,7 @@ pub(crate) async fn load_member_info(
         .map_err(|_| UserError::LockPoisoned("conversation"))?;
     let conversation = slot.live_ref()?;
     let member_bytes = conversation.members()?;
-    let scores = conversation.member_scores();
+    let scores = conversation.member_scores().unwrap_or_default();
     let roles = conversation.member_roles().unwrap_or_default();
     let pending_leavers = conversation.pending_leave_member_ids().unwrap_or_default();
 

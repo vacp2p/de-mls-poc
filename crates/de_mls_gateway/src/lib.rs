@@ -25,7 +25,7 @@ use alloy::signers::local::PrivateKeySigner;
 use hashgraph_like_consensus::signing::EthereumConsensusSigner;
 
 use de_mls::{
-    ConversationConfig, ScoringConfig, StewardListConfig, defaults::DefaultConsensusPlugin,
+    ConversationConfig, ScoringConfig, defaults::DefaultConsensusPlugin,
     protos::de_mls::messages::v1::ConversationUpdateRequest,
 };
 use de_mls_ds::{DeliveryService, SharedDeliveryService, WakuDeliveryService};
@@ -33,7 +33,7 @@ use de_mls_ui_protocol::v1::{AppCmd, AppEvent};
 use openmls_basic_credential::SignatureKeyPair;
 
 use crate::mls::{DefaultConversationPluginsFactory, build_credential};
-use crate::user::{ConsensusContext, ConversationEntry, User, UserPlugins};
+use crate::user::{ConversationEntry, User, UserPlugins};
 use futures::{
     StreamExt,
     channel::mpsc::{UnboundedReceiver, UnboundedSender, unbounded},
@@ -212,14 +212,13 @@ fn build_user_from_private_key(
         DefaultConversationPluginsFactory::new(credential, mls_signer.clone());
 
     let consensus_signer = EthereumConsensusSigner::new(eth_signer);
-    let consensus = ConsensusContext::<DefaultConsensusPlugin>::new(consensus_signer);
+    let consensus = DefaultConsensusPlugin::new(consensus_signer);
 
     let plugins = UserPlugins {
         conversation_plugins,
         consensus,
         default_conversation_config: ConversationConfig::default(),
         default_scoring_config: ScoringConfig::default(),
-        default_steward_list_config: StewardListConfig::default(),
     };
 
     Ok(User::new_with_plugins(

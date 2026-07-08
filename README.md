@@ -13,12 +13,17 @@ protocol library itself lives in the de-mls repo.
 
 | Crate / Path                  | Description                                                                                                 |
 | ----------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| **de-mls** (`src/`)           | The de-mls protocol library, vendored here as a snapshot (to become a pinned dependency on the de-mls repo) |
 | **crates/de_mls_ds**          | Delivery service — the `DeliveryService` trait and a Waku relay implementation                              |
 | **crates/de_mls_gateway**     | Integrator layer — per-conversation registry, identity, key-package minting, the OpenMLS provider           |
 | **crates/de_mls_ui_protocol** | Shared UI ↔ gateway message types (`AppCmd`, `AppEvent`, `MemberInfo`) + hex display                        |
 | **crates/ui_bridge**          | Bootstrap glue that hosts the async command loop for the desktop client                                     |
 | **apps/de_mls_desktop_ui**    | Dioxus desktop UI — login, chat, stewardship, and voting flows                                              |
+
+This repo carries **no protocol code**: the
+[de-mls](https://github.com/vacp2p/de-mls) library is consumed as a git
+dependency on its `main` branch (see the workspace `Cargo.toml`), so the PoC
+always exercises the latest library API. Run `cargo update -p de-mls` to pull
+the newest upstream commit.
 
 ## Prerequisites
 
@@ -211,16 +216,18 @@ per-conversation `de_mls::Conversation` handle. The integration that wraps it
 lives in **`crates/de_mls_gateway`** — it keeps a per-conversation registry,
 builds each `Conversation` from a wallet-derived credential, owns the OpenMLS
 provider and key-package minting, and pumps the delivery service. The default
-plug-ins (consensus over `hashgraph-like-consensus`, in-memory peer scoring, the
-deterministic steward list) come from `de_mls::defaults`.
+backends (consensus over `hashgraph-like-consensus`, in-memory peer scoring)
+come from `de_mls::defaults`; the steward list and its service are owned by
+the library itself.
 
 For the library API itself, see the
 [de-mls](https://github.com/vacp2p/de-mls) repository.
 
 ## Development Tips
 
-- `cargo test -p de-mls` – core library tests
-- `cargo build -p de-mls-gateway --features waku` – build the gateway with the Waku transport (needs libwaku in `libs/`; run `make` first)
+- `cargo test -p de-mls-gateway` – gateway integration tests (in-memory transport)
+- `cargo build -p de-mls-gateway` – build the gateway with the Waku transport (needs libwaku in `libs/`; run `make` first)
+- `cargo update -p de-mls` – pull the latest de-mls `main` commit
 - `cargo fmt --all --check` / `cargo clippy --all-targets -- -D warnings` – CI enforces both
 - `RUST_BACKTRACE=full` – helpful when debugging state-machine transitions during development
 

@@ -8,7 +8,7 @@ use de_mls::{ConsensusPlugin, Conversation, ConversationConfig, LeaveOutcome};
 
 use openmls_traits::signatures::Signer;
 
-use crate::mls::GATEWAY_SUITE;
+use crate::mls::SystemClock;
 use crate::user::{LockExt, User, UserError};
 
 impl<P: ConsensusPlugin, Sig: Signer + Clone> User<P, Sig> {
@@ -51,19 +51,18 @@ impl<P: ConsensusPlugin, Sig: Signer + Clone> User<P, Sig> {
 
         let factory = &self.plugins.conversation_plugins;
         let scoring = factory.make_scoring(&self.plugins.default_scoring_config);
-        let steward = factory.make_steward(self.plugins.default_steward_list_config.clone());
         let conversation = Conversation::create(
             conversation_id,
+            self.member_id.member_id_bytes(),
             factory.provider(),
             factory.credential(),
-            GATEWAY_SUITE,
+            factory.group_config(),
             &self.signer,
+            &self.plugins.consensus,
             scoring,
-            steward,
-            self.plugins.consensus.build_service(),
+            SystemClock::default(),
             Arc::from(self.app_id.as_slice()),
             config,
-            self.member_id.member_id_bytes(),
         )?;
         self.install_conversation(conversation_id, conversation)?;
         Ok(())

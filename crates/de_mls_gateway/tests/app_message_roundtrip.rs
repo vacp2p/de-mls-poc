@@ -48,7 +48,7 @@ fn chat_message_delivered_to_peer_as_app_message_event() {
         .drain_events()
         .into_iter()
         .find_map(|e| match e {
-            ConversationEvent::AppMessage(msg) => match msg.payload {
+            ConversationEvent::ConversationMessage(msg) => match msg.payload {
                 Some(app_message::Payload::ConversationMessage(cm)) => {
                     Some((cm.message, cm.sender))
                 }

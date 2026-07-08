@@ -41,8 +41,8 @@ jobs:
             librsvg2-dev
       - name: Check formatting
         run: cargo fmt --all --check
-      - name: Run clippy (core library)
-        run: cargo clippy -p de-mls --tests -- -D warnings
+      - name: Run clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
 
   docs:
     runs-on: ubuntu-latest
@@ -59,22 +59,25 @@ jobs:
           shared-key: "stable"
       - name: Generate documentation
         run: |
-          cargo doc -p de-mls --lib --no-deps --document-private-items
+          cargo doc -p de-mls-gateway -p de-mls-ds -p de-mls-ui-protocol -p ui-bridge --lib --no-deps --document-private-items
         env:
           RUSTDOCFLAGS: -Dwarnings
 
   test:
-    runs-on: ubuntu-latest
+    # macOS: the checked-in libs/libwaku.dylib (arm64) is loadable at test
+    # runtime via the @rpath the crates' build scripts embed; Linux would
+    # need a locally-built libwaku.so.
+    runs-on: macos-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
-          shared-key: "stable"
+          shared-key: "stable-macos"
       - name: Install protoc
         uses: taiki-e/install-action@v2
         with:
           tool: protoc@${{ env.PROTOC_VERSION }}
-      - name: Test (core library)
-        run: cargo test -p de-mls --release
+      - name: Test
+        run: cargo test -p de-mls-gateway -p de-mls-ds -p de-mls-ui-protocol -p ui-bridge --release
