@@ -3,7 +3,8 @@ use std::str::FromStr;
 use alloy::primitives::Address;
 
 use de_mls_ds::WakuDeliveryService;
-use de_mls_ui_protocol::v1::MemberInfo;
+use de_mls_ui_protocol::v1::{AppEvent, LivenessLever, MemberInfo};
+use futures::channel::mpsc::UnboundedSender;
 
 use crate::{
     ConversationRef, Gateway, UserRef,
@@ -41,7 +42,11 @@ impl Gateway<WakuDeliveryService> {
         // Unified polling loop — stewards create commit candidates
         // automatically inside `poll_conversation` when the inactivity timer fires.
         let user_clone = user_ref.clone();
-        tokio::spawn(Self::group_polling_loop(user_clone, conversation_id));
+        tokio::spawn(Self::group_polling_loop(
+            user_clone,
+            conversation_id,
+            self.evt_tx.clone(),
+        ));
         Ok(())
     }
 
@@ -66,6 +71,7 @@ impl Gateway<WakuDeliveryService> {
 
         let user_clone = user_ref.clone();
         let group_name_clone = conversation_id.clone();
+        let evt_tx = self.evt_tx.clone();
         tokio::spawn(async move {
             // Phase 1: wait for the welcome to register the conversation in
             // `Working`. Until then `conversation_state` returns
@@ -111,15 +117,21 @@ impl Gateway<WakuDeliveryService> {
             tracing::info!(group = %group_name_clone, "member joined group");
 
             // Phase 2: same unified polling loop as creator.
-            Self::group_polling_loop(user_clone, group_name_clone).await;
+            Self::group_polling_loop(user_clone, group_name_clone, evt_tx).await;
         });
 
         Ok(())
     }
 
-    /// Unified polling loop for any group member (creator or joiner). All
-    /// time-based conversation paths are driven by a single `poll_conversation` call.
-    async fn group_polling_loop(user: UserRef, conversation_id: String) {
+    /// Unified polling loop for any group member (creator or joiner). Each tick
+    /// advances de-mls's agreement/freeze state via `poll_conversation`, then
+    /// runs the gateway's liveness policy (`drive_liveness_policy`) — the commit
+    /// and takeover timing de-mls no longer keeps.
+    async fn group_polling_loop(
+        user: UserRef,
+        conversation_id: String,
+        evt_tx: UnboundedSender<AppEvent>,
+    ) {
         loop {
             tokio::time::sleep(std::time::Duration::from_secs(2)).await;
             let outcome = match user.read().await.poll_conversation(&conversation_id) {
@@ -133,6 +145,17 @@ impl Gateway<WakuDeliveryService> {
                     continue;
                 }
             };
+            match user.read().await.drive_liveness_policy(&conversation_id) {
+                // The policy surfaced a stall (manual mode, no commit landing) —
+                // inform the user; recovery stays their call.
+                Ok(Some(warning)) => {
+                    let _ = evt_tx.unbounded_send(AppEvent::Error(warning));
+                }
+                Ok(None) => {}
+                Err(e) => {
+                    tracing::warn!(group = %conversation_id, error = %e, "liveness policy error");
+                }
+            }
             if outcome.leave_requested {
                 if let Err(e) = user.read().await.finalize_self_leave(&conversation_id) {
                     tracing::error!(group = %conversation_id, error = %e, "self-leave cleanup failed");
@@ -175,6 +198,33 @@ impl Gateway<WakuDeliveryService> {
             .await
             .remove_member(&conversation_id, target.as_slice())?;
 
+        Ok(())
+    }
+
+    /// Manually start the takeover for `conversation_id` — the UI "Recover"
+    /// action. Runs `commit_now`, which when the epoch steward is offline
+    /// produces a NoCandidate that accuses the steward and drives reelection to
+    /// a fresh steward list. Any member may call it.
+    pub async fn request_recovery(&self, conversation_id: String) -> anyhow::Result<()> {
+        let user_ref = self.user()?;
+        let started = user_ref.read().await.commit_now(&conversation_id)?;
+        if !started {
+            tracing::info!(
+                group = %conversation_id,
+                "recover: nothing to commit (no approved work stuck, or election in flight)"
+            );
+        }
+        Ok(())
+    }
+
+    /// Flip one lever of this node's liveness policy (auto vs manual).
+    pub async fn set_liveness_toggle(
+        &self,
+        lever: LivenessLever,
+        enabled: bool,
+    ) -> anyhow::Result<()> {
+        let user_ref = self.user()?;
+        user_ref.read().await.set_liveness_toggle(lever, enabled);
         Ok(())
     }
 

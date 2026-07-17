@@ -8,6 +8,10 @@ use std::{
     time::Duration,
 };
 
+use de_mls_ui_protocol::v1::LivenessLever;
+
+use crate::user::LivenessPolicy;
+
 use de_mls::{
     ConsensusPlugin, Conversation, ConversationEvent, ConversationState, CreatorVote, MemberRole,
     PollOutcome, ScoringConfig, StewardListConfig,
@@ -122,6 +126,15 @@ pub struct User<P: ConsensusPlugin, Sig: Signer> {
     /// when new conversations appear and old ones disappear. Interior `Mutex`
     /// so producer-side methods stay `&self`.
     pub(crate) pending_lifecycle_events: Mutex<Vec<ConversationLifecycle>>,
+    /// Per-conversation anchors for the liveness policy de-mls no longer times
+    /// (see [`Self::drive_liveness_policy`]). Keyed by conversation id; interior
+    /// `Mutex` so the `&self` polling path can update them.
+    pub(crate) liveness_anchors: Mutex<HashMap<String, crate::user::LivenessAnchors>>,
+    /// This node's liveness policy — each lever independently auto or manual
+    /// (see [`LivenessPolicy`]). Read once per tick by
+    /// [`Self::drive_liveness_policy`]; toggled from the UI via
+    /// [`Self::set_liveness_toggle`].
+    pub(crate) liveness_policy: Mutex<LivenessPolicy>,
 }
 
 // ── Public API ──────────────────────────────────────────────────────────
@@ -376,6 +389,39 @@ impl<P: ConsensusPlugin, Sig: Signer + Clone> User<P, Sig> {
             )?;
         self.flush(&entry)?;
         Ok(())
+    }
+
+    /// Open Layer-3 recovery on `conversation_id` by filing a Deadlock ECP. Any
+    /// member may call it — once recovery opens, the liveness policy mints the
+    /// stuck work without the offline steward. Thin wrapper over
+    /// [`Conversation::request_recovery`].
+    pub fn request_recovery(&self, conversation_id: &str) -> Result<(), UserError> {
+        let entry = self
+            .lookup_entry(conversation_id)?
+            .ok_or(UserError::ConversationNotFound)?;
+        entry
+            .write_or_err("conversation")?
+            .live_mut()?
+            .request_recovery(self.plugins.conversation_plugins.provider(), &self.signer)?;
+        self.flush(&entry)?;
+        Ok(())
+    }
+
+    /// Start the commit round now (`commit_now`). When the epoch steward is
+    /// offline, a member's `commit_now` produces a NoCandidate that accuses the
+    /// steward and drives reelection to a fresh steward list — the manual
+    /// takeover the Recover button triggers. `Ok(false)` if there is nothing to
+    /// commit (not in `Working`, no approved work, or an election is in flight).
+    pub fn commit_now(&self, conversation_id: &str) -> Result<bool, UserError> {
+        let entry = self
+            .lookup_entry(conversation_id)?
+            .ok_or(UserError::ConversationNotFound)?;
+        let started = entry
+            .write_or_err("conversation")?
+            .live_mut()?
+            .commit_now(self.plugins.conversation_plugins.provider(), &self.signer)?;
+        self.flush(&entry)?;
+        Ok(started)
     }
 
     /// Submit `request` as a fresh consensus proposal with
@@ -636,6 +682,28 @@ impl<P: ConsensusPlugin, Sig: Signer> User<P, Sig> {
             plugins,
             conversations: RwLock::new(HashMap::new()),
             pending_lifecycle_events: Mutex::new(Vec::new()),
+            liveness_anchors: Mutex::new(HashMap::new()),
+            liveness_policy: Mutex::new(LivenessPolicy::default()),
         }
+    }
+
+    /// Flip one liveness lever (see [`LivenessPolicy`]). Poison-safe: a poisoned
+    /// lock is logged and the toggle skipped rather than propagated.
+    pub fn set_liveness_toggle(&self, lever: LivenessLever, enabled: bool) {
+        match self.liveness_policy.lock() {
+            Ok(mut policy) => match lever {
+                LivenessLever::Commit => policy.auto_commit = enabled,
+                LivenessLever::Propose => policy.auto_propose = enabled,
+                LivenessLever::Sync => policy.auto_sync = enabled,
+                LivenessLever::Recover => policy.auto_recover = enabled,
+            },
+            Err(_) => tracing::error!("liveness-policy lock poisoned; toggle dropped"),
+        }
+    }
+
+    /// Snapshot of the current liveness policy. Falls back to the default on a
+    /// poisoned lock so the polling loop keeps driving.
+    pub fn liveness_policy(&self) -> LivenessPolicy {
+        self.liveness_policy.lock().map(|p| *p).unwrap_or_default()
     }
 }

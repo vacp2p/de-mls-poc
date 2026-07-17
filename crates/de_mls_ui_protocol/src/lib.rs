@@ -81,6 +81,21 @@ pub mod v1 {
         pub pending_leave: bool,
     }
 
+    /// One independently-toggleable lever of the gateway's liveness policy.
+    /// de-mls keeps no timers; each lever is a thing the app can drive on a
+    /// timer (auto) or by hand.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+    pub enum LivenessLever {
+        /// Epoch steward auto-commits its approved batch on the commit timer.
+        Commit,
+        /// A backup auto-proposes a silent steward's buffered joins/removes.
+        Propose,
+        /// A backup auto-answers an unanswered ConversationSync request.
+        Sync,
+        /// A backup auto-starts recovery/reelection when the steward is silent.
+        Recover,
+    }
+
     #[derive(Debug, Clone, Serialize, Deserialize)]
     #[non_exhaustive]
     pub enum AppCmd {
@@ -124,6 +139,17 @@ pub mod v1 {
         SendBanRequest {
             conversation_id: String,
             user_to_ban: String,
+        },
+        /// Open Layer-3 recovery on the conversation. Any member may send it to
+        /// unstick a group whose epoch steward went offline mid-round.
+        RequestRecovery {
+            conversation_id: String,
+        },
+        /// Toggle one lever of this node's liveness policy independently, so a
+        /// demo can drive each on its own timer or by hand.
+        SetLivenessToggle {
+            lever: LivenessLever,
+            enabled: bool,
         },
         GetGroupMembers {
             conversation_id: String,

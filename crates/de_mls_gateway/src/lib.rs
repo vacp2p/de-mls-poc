@@ -199,6 +199,27 @@ pub fn render_member_id(bytes: &[u8]) -> String {
     }
 }
 
+/// Timing for the desktop demo. Faster than production, but `consensus_timeout`
+/// stays long enough that a steward-election vote resolves on *real* votes over
+/// lossy Waku rather than the silent-vote timeout fallback — the fallback can
+/// resolve differently per node and split the steward list. `voting_inactivity`
+/// (the reelection-retry window) is held above `consensus_timeout` so a round is
+/// never retried before it has had a chance to resolve everywhere. Keeps the
+/// ordering invariant `voting_delay < consensus_timeout < commit_inactivity`.
+fn demo_conversation_config() -> ConversationConfig {
+    use std::time::Duration;
+    ConversationConfig {
+        voting_delay: Duration::from_secs(4),
+        election_voting_delay: Duration::from_secs(4),
+        consensus_timeout: Duration::from_secs(20),
+        commit_inactivity_duration: Duration::from_secs(25),
+        freeze_duration: Duration::from_secs(8),
+        recovery_inactivity_duration: Duration::from_secs(5),
+        voting_inactivity_duration: Duration::from_secs(25),
+        ..ConversationConfig::default()
+    }
+}
+
 fn build_user_from_private_key(
     private_key: &str,
     transport: SharedDeliveryService,
@@ -217,7 +238,7 @@ fn build_user_from_private_key(
     let plugins = UserPlugins {
         conversation_plugins,
         consensus,
-        default_conversation_config: ConversationConfig::default(),
+        default_conversation_config: demo_conversation_config(),
         default_scoring_config: ScoringConfig::default(),
     };
 
