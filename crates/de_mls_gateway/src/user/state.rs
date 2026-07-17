@@ -687,8 +687,8 @@ impl<P: ConsensusPlugin, Sig: Signer> User<P, Sig> {
         }
     }
 
-    /// Flip one liveness lever (see [`LivenessPolicy`]). Poison-safe: a poisoned
-    /// lock is logged and the toggle skipped rather than propagated.
+    /// Flip one liveness lever of the node's `LivenessPolicy`. Poison-safe: a
+    /// poisoned lock is logged and the toggle skipped rather than propagated.
     pub fn set_liveness_toggle(&self, lever: LivenessLever, enabled: bool) {
         match self.liveness_policy.lock() {
             Ok(mut policy) => match lever {
