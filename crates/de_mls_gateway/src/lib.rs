@@ -226,7 +226,6 @@ const DEMO_RECOVERY_TAKEOVER: Duration = Duration::from_secs(5);
 fn demo_conversation_config() -> ConversationConfig {
     ConversationConfig {
         voting_delay: Duration::from_secs(4),
-        election_voting_delay: Duration::from_secs(4),
         consensus_timeout: Duration::from_secs(20),
         freeze_duration: Duration::from_secs(8),
         ..ConversationConfig::default()
