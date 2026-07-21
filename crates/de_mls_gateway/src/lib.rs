@@ -18,6 +18,7 @@ use std::{
     collections::{HashMap, VecDeque},
     str::FromStr,
     sync::{Arc, Mutex as StdMutex, atomic::AtomicBool},
+    time::Duration,
 };
 
 use alloy::primitives::Address;
@@ -199,23 +200,35 @@ pub fn render_member_id(bytes: &[u8]) -> String {
     }
 }
 
-/// Timing for the desktop demo. Faster than production, but `consensus_timeout`
-/// stays long enough that a steward-election vote resolves on *real* votes over
-/// lossy Waku rather than the silent-vote timeout fallback — the fallback can
-/// resolve differently per node and split the steward list. `voting_inactivity`
-/// (the reelection-retry window) is held above `consensus_timeout` so a round is
-/// never retried before it has had a chance to resolve everywhere. Keeps the
-/// ordering invariant `voting_delay < consensus_timeout < commit_inactivity`.
+/// The app-owned commit-inactivity delay for the demo — how long the epoch
+/// steward may sit on approved work before the policy commits. Held above
+/// `consensus_timeout` so a vote resolves first.
+const DEMO_COMMIT_INACTIVITY: Duration = Duration::from_secs(25);
+
+/// The app-owned silent-steward window for the demo (RFC §Inactivity Timer #3)
+/// — the short delay a backup waits before covering a silent steward's propose
+/// / sync-resend. Much shorter than `DEMO_COMMIT_INACTIVITY`: a backup's
+/// duplicate propose/sync is deduped/idempotent, so this only needs to clear the
+/// network sync (a few `voting_delay`s), not wait out a commit or a vote.
+const DEMO_SILENT_STEWARD_WINDOW: Duration = Duration::from_secs(10);
+
+/// The app-owned recovery-takeover window for the demo — the extra wait a backup
+/// adds before forcing a commit round for a silent primary. de-mls owns
+/// reelection and its round timing; this is purely the app's liveness delay.
+const DEMO_RECOVERY_TAKEOVER: Duration = Duration::from_secs(5);
+
+/// Agreement/settle timing (the de-mls-owned config) for the desktop demo.
+/// Faster than production, but `consensus_timeout` stays long enough that a
+/// steward-election vote resolves on *real* votes over lossy Waku rather than
+/// the silent-vote timeout fallback, which can resolve differently per node and
+/// split the steward list. Ordering invariant: `voting_delay < consensus_timeout
+/// < DEMO_COMMIT_INACTIVITY`.
 fn demo_conversation_config() -> ConversationConfig {
-    use std::time::Duration;
     ConversationConfig {
         voting_delay: Duration::from_secs(4),
         election_voting_delay: Duration::from_secs(4),
         consensus_timeout: Duration::from_secs(20),
-        commit_inactivity_duration: Duration::from_secs(25),
         freeze_duration: Duration::from_secs(8),
-        recovery_inactivity_duration: Duration::from_secs(5),
-        voting_inactivity_duration: Duration::from_secs(25),
         ..ConversationConfig::default()
     }
 }
@@ -240,6 +253,9 @@ fn build_user_from_private_key(
         consensus,
         default_conversation_config: demo_conversation_config(),
         default_scoring_config: ScoringConfig::default(),
+        commit_inactivity: DEMO_COMMIT_INACTIVITY,
+        silent_steward_window: DEMO_SILENT_STEWARD_WINDOW,
+        recovery_takeover: DEMO_RECOVERY_TAKEOVER,
     };
 
     Ok(User::new_with_plugins(

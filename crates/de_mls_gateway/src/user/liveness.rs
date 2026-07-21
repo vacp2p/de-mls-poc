@@ -21,7 +21,6 @@ use crate::user::{LockExt, User, UserError};
 #[derive(Default)]
 pub struct LivenessAnchors {
     commit: Option<Instant>,
-    reelection: Option<Instant>,
     sync_resend: Option<Instant>,
     buffered: Option<Instant>,
     /// When approved work first appeared uncommitted, for the manual-mode stall
@@ -90,10 +89,12 @@ impl<P: ConsensusPlugin, Sig: Signer + Clone> User<P, Sig> {
             return Ok(None);
         };
         let now = Instant::now();
-        let cfg = &self.plugins.default_conversation_config;
-        let commit_delay = cfg.commit_inactivity_duration;
-        let recovery_delay = cfg.recovery_inactivity_duration;
-        let window = cfg.voting_inactivity_window();
+        // Liveness timing the app owns end to end.
+        let commit_delay = self.plugins.commit_inactivity;
+        let recovery_delay = self.plugins.recovery_takeover;
+        // RFC §3: the short window for covering a silent steward's in-epoch
+        // propose / sync-resend (the work is already visible to all).
+        let silent_window = self.plugins.silent_steward_window;
         let provider = self.plugins.conversation_plugins.provider();
         let signer = &self.signer;
         let policy = self.liveness_policy();
@@ -145,26 +146,16 @@ impl<P: ConsensusPlugin, Sig: Signer + Clone> User<P, Sig> {
                 anchors.commit = None;
             }
 
-            // Reelection-silence: a full silent window counts the round rejected,
-            // rotating proposer authority off an unresponsive steward. Always on,
-            // even in manual mode: the group only enters Reelection once a member
-            // starts the takeover (via Recover), and this is what drives that
-            // takeover to a new steward.
-            if window_elapsed(
-                &mut anchors.reelection,
-                now,
-                convo.reelection_stalled(),
-                window,
-            ) {
-                anchors.reelection = None;
-                if let Err(e) = convo.advance_election_retry(provider, signer) {
-                    tracing::warn!(group = %conversation_id, error = %e, "advance_election_retry failed");
-                }
-            }
+            // Reelection is de-mls-internal now: once a commit round yields
+            // NoCandidate, de-mls advances the retry ladder itself (the retry
+            // round re-seeds the shared steward list, so it must move in
+            // lockstep). The app only forces the initial round via `commit_now`
+            // above, and opens Layer-3 recovery on `ReelectionExhausted`.
 
-            // Sync-resend (`Sync` lever): a backup covers a silent epoch steward.
-            let sync_active = policy.auto_sync && convo.awaiting_sync_resend();
-            if window_elapsed(&mut anchors.sync_resend, now, sync_active, window) {
+            // Sync-resend (`Sync` lever): a backup covers a silent epoch steward
+            // after the short silent-steward window.
+            let sync_active = policy.auto_sync && convo.pending_sync_resend();
+            if window_elapsed(&mut anchors.sync_resend, now, sync_active, silent_window) {
                 anchors.sync_resend = None;
                 if let Err(e) = convo.share_conversation_sync(provider, signer) {
                     tracing::warn!(group = %conversation_id, error = %e, "share_conversation_sync failed");
@@ -172,8 +163,8 @@ impl<P: ConsensusPlugin, Sig: Signer + Clone> User<P, Sig> {
             }
 
             // Buffered-propose: the epoch steward proposes immediately (normal
-            // operation); a backup takes over a silent primary after the window
-            // (the `Propose` lever).
+            // operation); a backup takes over a silent primary after the short
+            // silent-steward window (the `Propose` lever).
             let buffered = convo.pending_buffered_updates() > 0;
             let is_steward = convo.is_steward();
             let is_epoch = convo.is_epoch_steward().unwrap_or(false);
@@ -182,7 +173,7 @@ impl<P: ConsensusPlugin, Sig: Signer + Clone> User<P, Sig> {
                 true
             } else {
                 let active = policy.auto_propose && buffered && is_steward;
-                window_elapsed(&mut anchors.buffered, now, active, window)
+                window_elapsed(&mut anchors.buffered, now, active, silent_window)
             };
             if buffered_ready {
                 anchors.buffered = None;

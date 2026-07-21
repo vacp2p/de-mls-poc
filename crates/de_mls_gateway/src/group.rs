@@ -201,19 +201,15 @@ impl Gateway<WakuDeliveryService> {
         Ok(())
     }
 
-    /// Manually start the takeover for `conversation_id` — the UI "Recover"
-    /// action. Runs `commit_now`, which when the epoch steward is offline
-    /// produces a NoCandidate that accuses the steward and drives reelection to
-    /// a fresh steward list. Any member may call it.
+    /// Open Layer-3 recovery for `conversation_id` — the UI "Recover" action.
+    /// Files a `Deadlock` ECP (needs ⌈2n/3⌉ consensus); once it lands, the
+    /// steward gate relaxes so any member may commit. This is the app's recovery
+    /// trigger — de-mls drives reelection on its own and only surfaces
+    /// `ReelectionExhausted` when it can't elect a live steward. Any member may
+    /// call it; it is a no-op if recovery is already open.
     pub async fn request_recovery(&self, conversation_id: String) -> anyhow::Result<()> {
         let user_ref = self.user()?;
-        let started = user_ref.read().await.commit_now(&conversation_id)?;
-        if !started {
-            tracing::info!(
-                group = %conversation_id,
-                "recover: nothing to commit (no approved work stuck, or election in flight)"
-            );
-        }
+        user_ref.read().await.request_recovery(&conversation_id)?;
         Ok(())
     }
 

@@ -5,6 +5,8 @@
 //! conversations. Grouping these here keeps the `User` definition surfacing
 //! registry + transport at top level.
 
+use std::time::Duration;
+
 use de_mls::{ConsensusPlugin, ConversationConfig, ScoringConfig};
 
 use crate::mls::DefaultConversationPluginsFactory;
@@ -26,4 +28,20 @@ pub struct UserPlugins<P: ConsensusPlugin> {
     pub default_conversation_config: ConversationConfig,
     /// Seed config for the per-conversation peer-scoring plug-in.
     pub default_scoring_config: ScoringConfig,
+    /// The app's commit-inactivity delay (RFC §Inactivity Timer #1) — how long
+    /// the epoch steward may sit on approved work before the liveness policy
+    /// drives `commit_now`. de-mls no longer owns this liveness timing, so the
+    /// gateway carries it; a backup's commit takeover window derives from it
+    /// plus `recovery_takeover`.
+    pub commit_inactivity: Duration,
+    /// The app's silent-steward window (RFC §Inactivity Timer #3) — the short ~Δ
+    /// delay a backup waits before covering a silent steward's in-epoch work:
+    /// proposing a granted update, re-sending a sync (work the primary should
+    /// have done immediately). Much smaller than `commit_inactivity`: the work is
+    /// already visible to all, so there's no commit cycle to wait out.
+    pub silent_steward_window: Duration,
+    /// The app's recovery-takeover window — the extra wait a backup adds before
+    /// forcing a commit round for a silent primary. de-mls owns reelection and
+    /// its round timing now; this is purely the app's liveness delay.
+    pub recovery_takeover: Duration,
 }
