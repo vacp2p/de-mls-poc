@@ -9,7 +9,7 @@ members = [
 ]
 
 [workspace.dependencies]
-de-mls = { git = "https://github.com/vacp2p/de-mls.git", branch = "refactor/externalize-liveness-timers" }
+de-mls = { git = "https://github.com/vacp2p/de-mls.git", branch = "develop" }
 
 [profile.wasm-dev]
 inherits = "dev"
