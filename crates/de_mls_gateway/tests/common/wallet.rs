@@ -9,6 +9,7 @@
 //! integration suite uses Ethereum keys for convenience.
 
 use std::str::FromStr;
+use std::time::Duration;
 
 use alloy::signers::local::PrivateKeySigner;
 use de_mls_gateway::WalletMemberId;
@@ -46,6 +47,9 @@ pub fn user_from_private_key(
         consensus,
         default_conversation_config: cfg,
         default_scoring_config: ScoringConfig::default(),
+        commit_inactivity: Duration::from_millis(50),
+        silent_steward_window: Duration::from_millis(30),
+        recovery_takeover: Duration::from_millis(50),
     };
 
     User::new_with_plugins(member_id, mls_signer, plugins, transport)

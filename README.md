@@ -11,13 +11,13 @@ protocol library itself lives in the de-mls repo.
 
 ## What's Included
 
-| Crate / Path                  | Description                                                                                                 |
-| ----------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| **crates/de_mls_ds**          | Delivery service — the `DeliveryService` trait and a Waku relay implementation                              |
-| **crates/de_mls_gateway**     | Integrator layer — per-conversation registry, identity, key-package minting, the OpenMLS provider           |
-| **crates/de_mls_ui_protocol** | Shared UI ↔ gateway message types (`AppCmd`, `AppEvent`, `MemberInfo`) + hex display                        |
-| **crates/ui_bridge**          | Bootstrap glue that hosts the async command loop for the desktop client                                     |
-| **apps/de_mls_desktop_ui**    | Dioxus desktop UI — login, chat, stewardship, and voting flows                                              |
+| Crate / Path                  | Description                                                                                       |
+| ----------------------------- | ------------------------------------------------------------------------------------------------- |
+| **crates/de_mls_ds**          | Delivery service — the `DeliveryService` trait and a Waku relay implementation                    |
+| **crates/de_mls_gateway**     | Integrator layer — per-conversation registry, identity, key-package minting, the OpenMLS provider |
+| **crates/de_mls_ui_protocol** | Shared UI ↔ gateway message types (`AppCmd`, `AppEvent`, `MemberInfo`) + hex display              |
+| **crates/ui_bridge**          | Bootstrap glue that hosts the async command loop for the desktop client                           |
+| **apps/de_mls_desktop_ui**    | Dioxus desktop UI — login, chat, stewardship, and voting flows                                    |
 
 This repo carries **no protocol code**: the
 [de-mls](https://github.com/vacp2p/de-mls) library is consumed as a git
@@ -231,6 +231,61 @@ the library itself.
 
 For the library API itself, see the
 [de-mls](https://github.com/vacp2p/de-mls) repository.
+
+## Liveness policy & timing
+
+de-mls keeps **no liveness timers** for the app's decisions — it exposes
+condition queries and manual triggers, and the gateway decides *when* to act.
+`drive_liveness_policy` (`crates/de_mls_gateway/src/user/liveness.rs`) runs after
+every `poll_conversation` and drives each lever on the app's clock. Each lever is
+independently **auto** (timer-driven) or **manual** (off — driven by hand),
+toggled from the chat header in the desktop UI.
+
+Reelection is **not** an app lever: once a commit round produces no valid
+candidate, de-mls advances the retry ladder itself on `poll()`. The app only
+decides *when to force a commit* and *when to open Layer-3 recovery*.
+
+| Toggle      | RFC timer            | Default    | Epoch steward (normal)                                      | Backup covers a *silent* steward after…                                                                                                      | Manual (off)                                                                                           |
+| ----------- | -------------------- | ---------- | ----------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| **Commit**  | #1 commit inactivity | auto       | commits its approved batch after `commit_inactivity` (25 s) | `commit_inactivity + recovery_takeover` (30 s) via `commit_now`; when no steward candidate lands, de-mls turns that into internal reelection | steward commits only when driven by hand                                                               |
+| **Propose** | #3 voting inactivity | auto       | proposes a granted update **immediately**                   | `silent_steward_window` (10 s)                                                                                                               | joins wait                                                                                             |
+| **Sync**    | #3 voting inactivity | auto       | answers a sync request **immediately**                      | `silent_steward_window` (10 s)                                                                                                               | sync waits                                                                                             |
+| **Recover** | Layer 3              | **manual** | —                                                           | opens Layer-3 recovery via `request_recovery` (the Deadlock ECP)                                                                             | group **stalls** until a member presses **Recover** (prompted when de-mls emits `ReelectionExhausted`) |
+
+The key point: **anything that can be done inside the working epoch is done
+immediately by the epoch steward** — a granted update is proposed at once, a sync
+answered at once. The waits above are only a *backup* covering a steward that has
+gone quiet; for propose/sync that wait is the short `silent_steward_window` (a
+duplicate propose/sync is deduped/idempotent, so it only needs to clear the
+network sync). The commit takeover is the heavier `commit_inactivity +
+recovery_takeover` window, because it replaces a steward rather than covers one.
+
+**Timings and how they depend on each other.** The demo splits timing in two
+(`crates/de_mls_gateway/src/lib.rs`):
+
+- **App-owned** liveness timing: `commit_inactivity` (25 s, RFC #1),
+  `silent_steward_window` (10 s, RFC #3), and `recovery_takeover` (5 s) — the
+  extra wait before a backup forces a commit for a silent primary.
+- **de-mls-owned** agreement/settle config, shared by every member and synced to
+  joiners: `voting_delay` (4 s), `consensus_timeout` (20 s), `freeze_duration`
+  (8 s), and `max_reelection_attempts` (the internal retry cap before Layer 3).
+
+Keep this ordering, per node:
+
+``` text
+voting_delay  <  silent_steward_window  <  consensus_timeout  <  commit_inactivity  <  commit takeover
+   (4 s)            (10 s)                   (20 s)                 (25 s)              (30 s)
+```
+
+`silent_steward_window` sits above `voting_delay` (so a live steward's own
+propose/answer reaches the backup first) but well below `commit_inactivity`.
+
+And, across the network, **`consensus_timeout` must exceed the real message
+delay**. It bounds both a vote session and de-mls's silent-reelection-round
+window; if a steward-election vote times out before votes propagate over lossy
+Waku, it resolves on the silent-vote fallback — which can resolve differently per
+node and **split the steward list**. That is why `consensus_timeout` is a
+generous 20 s here.
 
 ## Development Tips
 

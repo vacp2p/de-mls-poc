@@ -192,10 +192,8 @@ pub fn route_welcomes(
 pub fn fast_test_config() -> ConversationConfig {
     use std::time::Duration;
     ConversationConfig {
-        commit_inactivity_duration: Duration::from_millis(50),
         freeze_duration: Duration::from_millis(20),
         voting_delay: Duration::from_millis(30),
-        election_voting_delay: Duration::from_millis(30),
         consensus_timeout: Duration::from_millis(150),
         proposal_expiration: Duration::from_millis(2000),
         ..ConversationConfig::default()
@@ -210,6 +208,9 @@ pub fn fast_test_config() -> ConversationConfig {
 /// yet (no welcome).
 pub fn poll_once(user: &TestUser, conversation: &str) {
     let _ = user.poll_conversation(conversation);
+    // de-mls keeps no liveness timers; the gateway's policy drives commits and
+    // takeovers. Mirror the production `group_polling_loop` body.
+    let _ = user.drive_liveness_policy(conversation);
 }
 
 /// Flush every conversation's pull-buffered outbound on `user` into its

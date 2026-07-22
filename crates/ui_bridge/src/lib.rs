@@ -161,6 +161,27 @@ async fn ui_loop(mut cmd_rx: UnboundedReceiver<AppCmd>) -> anyhow::Result<()> {
                 }
             }
 
+            AppCmd::RequestRecovery { conversation_id } => {
+                if let Err(e) = GATEWAY.request_recovery(conversation_id.clone()).await {
+                    GATEWAY.push_event(AppEvent::Error(format!("Request recovery failed: {e}")));
+                } else {
+                    GATEWAY.push_event(AppEvent::ChatMessage(ConversationMessage {
+                        message: "You started recovery for the group"
+                            .to_string()
+                            .into_bytes(),
+                        sender: b"system".to_vec(),
+                        conversation_id: conversation_id.clone(),
+                        ..Default::default()
+                    }));
+                }
+            }
+
+            AppCmd::SetLivenessToggle { lever, enabled } => {
+                if let Err(e) = GATEWAY.set_liveness_toggle(lever, enabled).await {
+                    GATEWAY.push_event(AppEvent::Error(format!("Set liveness toggle failed: {e}")));
+                }
+            }
+
             // ───────────── Chat ─────────────
             // The local echo is deferred until the send succeeds: echoing
             // first would leave a "sent" message in the transcript that

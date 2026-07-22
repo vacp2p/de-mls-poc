@@ -24,6 +24,7 @@
 mod error;
 mod inbound;
 mod lifecycle;
+mod liveness;
 mod lock;
 mod plugins;
 mod registry;
@@ -31,6 +32,7 @@ mod state;
 
 pub use error::UserError;
 pub use inbound::Inbound;
+pub(crate) use liveness::{LivenessAnchors, LivenessPolicy};
 pub(crate) use lock::LockExt;
 pub use plugins::UserPlugins;
 pub use state::{

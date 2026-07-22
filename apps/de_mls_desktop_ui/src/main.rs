@@ -17,7 +17,9 @@ use de_mls::protos::de_mls::messages::v1::{
     ConversationMessage, ConversationUpdateRequest, VotePayload,
 };
 use de_mls_gateway::{GATEWAY, bootstrap_core_from_env};
-use de_mls_ui_protocol::v1::{AppCmd, AppEvent, MemberInfo, format_conversation_request};
+use de_mls_ui_protocol::v1::{
+    AppCmd, AppEvent, LivenessLever, MemberInfo, format_conversation_request,
+};
 use dioxus::prelude::*;
 use dioxus_desktop::{Config, LogicalSize, WindowBuilder, launch::launch as desktop_launch};
 use hashgraph_like_consensus::types::ConsensusEvent;
@@ -828,6 +830,11 @@ fn ChatSection() -> Element {
     let mut show_ban_modal = use_signal(|| false);
     let mut ban_address = use_signal(String::new);
     let mut ban_error = use_signal(|| Option::<String>::None);
+    // Liveness levers, mirroring LivenessPolicy::default() (recovery starts manual).
+    let mut auto_commit = use_signal(|| true);
+    let mut auto_propose = use_signal(|| true);
+    let mut auto_sync = use_signal(|| true);
+    let mut auto_recover = use_signal(|| false);
 
     // States where `send_message` refuses (matches the core guard in
     // `src/app/user/messaging.rs`). Keep these two lists in sync.
@@ -968,13 +975,16 @@ fn ChatSection() -> Element {
                     div { class: "chat-actions",
                         button {
                             class: "ghost mini",
-                            onclick: move |_| {
-                                let conversation_id = gid.clone();
-                                spawn(async move {
-                                    let _ = GATEWAY
-                                        .send(AppCmd::LeaveConversation { conversation_id })
-                                        .await;
-                                });
+                            onclick: {
+                                let gid = gid.clone();
+                                move |_| {
+                                    let conversation_id = gid.clone();
+                                    spawn(async move {
+                                        let _ = GATEWAY
+                                            .send(AppCmd::LeaveConversation { conversation_id })
+                                            .await;
+                                    });
+                                }
                             },
                             "Leave group"
                         }
@@ -982,6 +992,73 @@ fn ChatSection() -> Element {
                             class: "ghost mini",
                             onclick: open_ban_modal,
                             "Request ban"
+                        }
+                        button {
+                            class: "ghost mini",
+                            onclick: {
+                                let gid = gid.clone();
+                                move |_| {
+                                    let conversation_id = gid.clone();
+                                    spawn(async move {
+                                        let _ = GATEWAY
+                                            .send(AppCmd::RequestRecovery { conversation_id })
+                                            .await;
+                                    });
+                                }
+                            },
+                            "Recover"
+                        }
+                        button {
+                            class: "ghost mini",
+                            onclick: move |_| {
+                                let next = !*auto_commit.read();
+                                auto_commit.set(next);
+                                spawn(async move {
+                                    let _ = GATEWAY
+                                        .send(AppCmd::SetLivenessToggle { lever: LivenessLever::Commit, enabled: next })
+                                        .await;
+                                });
+                            },
+                            if *auto_commit.read() { "Commit: auto" } else { "Commit: manual" }
+                        }
+                        button {
+                            class: "ghost mini",
+                            onclick: move |_| {
+                                let next = !*auto_propose.read();
+                                auto_propose.set(next);
+                                spawn(async move {
+                                    let _ = GATEWAY
+                                        .send(AppCmd::SetLivenessToggle { lever: LivenessLever::Propose, enabled: next })
+                                        .await;
+                                });
+                            },
+                            if *auto_propose.read() { "Propose: auto" } else { "Propose: manual" }
+                        }
+                        button {
+                            class: "ghost mini",
+                            onclick: move |_| {
+                                let next = !*auto_sync.read();
+                                auto_sync.set(next);
+                                spawn(async move {
+                                    let _ = GATEWAY
+                                        .send(AppCmd::SetLivenessToggle { lever: LivenessLever::Sync, enabled: next })
+                                        .await;
+                                });
+                            },
+                            if *auto_sync.read() { "Sync: auto" } else { "Sync: manual" }
+                        }
+                        button {
+                            class: "ghost mini",
+                            onclick: move |_| {
+                                let next = !*auto_recover.read();
+                                auto_recover.set(next);
+                                spawn(async move {
+                                    let _ = GATEWAY
+                                        .send(AppCmd::SetLivenessToggle { lever: LivenessLever::Recover, enabled: next })
+                                        .await;
+                                });
+                            },
+                            if *auto_recover.read() { "Recover: auto" } else { "Recover: manual" }
                         }
                     }
                 }

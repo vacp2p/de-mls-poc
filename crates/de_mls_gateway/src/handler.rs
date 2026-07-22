@@ -179,6 +179,16 @@ impl GatewayEventFanout {
                     "group {conversation_id} could not recover; membership changes may be stuck"
                 )));
             }
+            // Reelection ran out of retries without electing a live steward.
+            // de-mls does not escalate on its own — opening Layer-3 recovery is
+            // the app's call, so prompt the user to press Recover (one member
+            // files the Deadlock ECP, avoiding a per-member fan-out).
+            ConversationEvent::ReelectionExhausted => {
+                tracing::warn!(conversation = %conversation_id, "reelection exhausted");
+                let _ = self.evt_tx.unbounded_send(AppEvent::Error(format!(
+                    "group {conversation_id}: no steward could be elected — press Recover to open Layer-3 recovery"
+                )));
+            }
             ConversationEvent::ConversationSyncMissing => {
                 tracing::warn!(
                     conversation = %conversation_id,
